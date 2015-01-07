@@ -1,28 +1,37 @@
 #
-# freqwatch v0.1
+# freqwatch v0.2
 # Joshua Davis
 # freqwatch -!- covert.codes
 #
 
 1) Built on Linux with Python 2.7.  Requires that mysqld/mariadb and the
-   rtl-sdr tools be installed.  Tested on Linux
+   rtl-sdr tools be installed.  Requires the Python development package
+   (e.g. python-devel.  Tested on Linux.
 
-2) Install pyrtlsdr (e.g. by using pip2)
+2) Install and configure mysql and mysqld (do this first), and the devel
+   headers/libraries (e.g. mariadb-devel).  You need max_allowed_packet
+   (in my.cnf) to be large enough to handle CHUNK_SIZE in rtl_fm.
 
-3) Setup and start mysqld
+3) Install Python setuptools and run ./setup.py install
 
-4) Edit fwsetup.sql to reflect your preferences (including password)
+4) Edit fwsetup.sql to match your password and database preferences
 
 5) From the freqwatch directory: $ cat fwsetup.sql | mysql -u root -p
 
 6) Edit freqwatch.conf to reflect the database settings (and password),
    as well as your rtl-sdr stick configurations
 
-7) Change permissions on freqwatch.conf so your db password isn't visible to others.
+7) Change permissions on freqwatch.conf so your db password isn't visible to
+   others.
 
-8) To use monitors based on the modified rtl_fm, change to the rtl_fm_new
-   directory and run 'make'.  You can change the CHUNK_SIZE define in the
-   modified source to suit your needs.  You may have to adjust your sql
-   server configuration and increase max_allowed_packet if you run into
-   issues.
+8) Install the libusb development package and make any necessary symbolic
+   links for the header files
+
+9) Change to the rtl_fm_new directory and run 'make'
+
+10) To use monitors based on the modified rtl_fm, install gpsd and gpsd-devel,
+    change to the rtl_fm_new directory and run 'make'.  You can change the
+    CHUNK_SIZE define in the modified source to suit your needs.  You may have
+    to adjust your sql server configuration and increase max_allowed_packet if
+    you run into issues.
 

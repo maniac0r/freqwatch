@@ -1,6 +1,5 @@
 /*
- * THIS IS THE MODIFIED VERSION OF rtl_fm DESIGNED FOR USE WITH freqwatch
- *
+ * THIS IS THE MODIFIED VERSION OF rtl_fm DESIGNED FOR USE WITH freqwatch v0.2
  *
  * rtl-sdr, turns your Realtek RTL2832 based DVB dongle into a SDR receiver
  * Copyright (C) 2012 by Steve Markgraf <steve@steve-m.de>
@@ -54,6 +53,7 @@
 
 /* freqwatch */
 #include <mysql/mysql.h>
+#include <gps.h>
 /* end freqwatch */
 
 #ifdef __APPLE__
@@ -91,7 +91,11 @@ char fw_db_ip[32];
 char fw_db_user[32];
 char fw_db_pass[32];
 char fw_db_db[32];
+char fw_clientid[64];
 int fw_db_port;
+int fw_gpsd;
+char fw_gpsd_ip[32];
+char fw_gpsd_port[8];
 /* end freqwatch */
 
 #define DEFAULT_SAMPLE_RATE		24000
@@ -234,6 +238,18 @@ struct controller_state
 	pthread_mutex_t hop_m;
 };
 
+/* freqwatch */
+#define GPSSTR_LEN 64
+struct gps_state
+{
+    int exit_flag;
+    pthread_t thread;
+    char gpsstr[GPSSTR_LEN];
+    pthread_mutex_t gpsstr_m;
+};
+struct gps_state gpsst;
+/* end freqwatch */
+
 // multiple of these, eventually
 struct dongle_state dongle;
 struct demod_state demod;
@@ -274,10 +290,17 @@ insertdb(int16_t *data, size_t size, size_t nmemb)
         snprintf(dbuf, 16, "%d-%02d-%02d", 1900+info->tm_year, 1+info->tm_mon, info->tm_mday);
         snprintf(tbuf, 16, "%02d:%02d:%02d", info->tm_hour, info->tm_min, info->tm_sec);
 
-        char *tmp = "INSERT INTO %s (date, time, freq, data) VALUES ('%s', '%s', %d, ?)";
-        int len = strlen(tmp)+strlen(db_mon_table)+strlen(dbuf)+strlen(tbuf)+MAXFREQLEN+1;
+        char *tmp = "INSERT INTO %s (date, time, freq, clientid, gps, data) VALUES ('%s', '%s', %d, '%s', '%s', ?)";
+        int len = strlen(tmp)+strlen(db_mon_table)+strlen(dbuf)+strlen(tbuf)+strlen(fw_clientid)+strlen(gpsst.gpsstr)+MAXFREQLEN+1;
         char *sql = (char *) malloc(len);
-        int sqllen = snprintf(sql, len, tmp, db_mon_table, dbuf, tbuf, dongle.freq);
+
+        if(fw_gpsd == 1){
+            pthread_mutex_lock(&gpsst.gpsstr_m);
+            int sqllen = snprintf(sql, len, tmp, db_mon_table, dbuf, tbuf, dongle.freq, fw_clientid, gpsst.gpsstr);
+            pthread_mutex_unlock(&gpsst.gpsstr_m);
+        } else {
+            int sqllen = snprintf(sql, len, tmp, db_mon_table, dbuf, tbuf, dongle.freq, fw_clientid, gpsst.gpsstr);
+        }
 
         if(mysql_stmt_prepare(stmt, sql, strlen(sql)) != 0){
             printf("Unable to create session: mysql_stmt_prepare()\n");
@@ -312,7 +335,7 @@ insertdb(int16_t *data, size_t size, size_t nmemb)
 }
 
 
-/* from:
+/*
  * http://stackoverflow.com/questions/122616/how-do-i-trim-leading-trailing-whitespace-in-a-standard-way
  */
 
@@ -1147,6 +1170,38 @@ static int get_nanotime(struct timespec *ts)
 }
 #endif
 
+/* freqwatch */
+static void *gps_thread_fn(void *arg)
+{
+    struct gps_data_t gps_data;
+    pthread_mutex_init(&gpsst.gpsstr_m, NULL);
+
+    gps_open(fw_gpsd_ip, fw_gpsd_port, &gps_data);
+    gps_stream(&gps_data, WATCH_ENABLE | WATCH_JSON, NULL);
+
+    while(!do_exit){
+        if(gps_waiting(&gps_data, 500)){
+            if(gps_data.status > 0){
+                pthread_mutex_lock(&gpsst.gpsstr_m);
+                printf("here: %d\n", gps_data.fix.latitude);
+                snprintf(gpsst.gpsstr, sizeof(gpsst.gpsstr), "%f %f", gps_data.fix.latitude, gps_data.fix.longitude);
+                pthread_mutex_unlock(&gpsst.gpsstr_m);
+            }
+            else {
+                sprintf(gpsst.gpsstr, NULL);
+            }
+        }
+
+        sleep(1);
+    }
+
+    pthread_mutex_destroy(&gpsst.gpsstr_m);
+    gps_stream(&gps_data, WATCH_DISABLE, NULL);
+    gps_close(&gps_data);
+
+}
+/* end freqwatch */
+
 static void *output_thread_fn(void *arg)
 {
 	int j, r = 0;
@@ -1667,7 +1722,6 @@ int main(int argc, char **argv)
 			break;
 		case 'F':
 			demod.downsample_passes = 1;  /* truthy placeholder */
-			demod.comp_fir_size = atoi(optarg);
 			break;
 		case 'A':
 			if (strcmp("std",  optarg) == 0) {
@@ -1719,7 +1773,7 @@ int main(int argc, char **argv)
     FILE *conff = fopen(CONF_FILE, "r");
 
     if(conff != NULL){
-        char line[70];
+        char line[128];
         char *tmp, *token;
 
         while(fgets(line, sizeof(line), conff) != NULL){
@@ -1749,6 +1803,18 @@ int main(int argc, char **argv)
             } else if(strcmp(token, "db_pass") == 0){
                 token = strtok(NULL, "=");
                 strncpy(fw_db_pass, trimwhitespace(token), sizeof(fw_db_pass));
+            } else if(strcmp(token, "clientid") == 0){
+                token = strtok(NULL, "=");
+                strncpy(fw_clientid, trimwhitespace(token), sizeof(fw_clientid));
+            } else if(strcmp(token, "gpsd") == 0){
+                token = strtok(NULL, "=");
+                fw_gpsd = atoi(trimwhitespace(token));
+            } else if(strcmp(token, "gpsd_ip") == 0){
+                token = strtok(NULL, "=");
+                strncpy(fw_gpsd_ip, trimwhitespace(token), sizeof(fw_gpsd_ip));
+            } else if(strcmp(token, "gpsd_port") == 0){
+                token = strtok(NULL, "=");
+                strncpy(fw_gpsd_port, trimwhitespace(token), sizeof(fw_gpsd_port));
             }
 
         }
@@ -1834,7 +1900,7 @@ int main(int argc, char **argv)
 	verbose_ppm_set(dongle.dev, dongle.ppm_error);
 
     /* freqwatch */
-   output.file = fopen("/dev/null", "wb");
+    output.file = fopen("/dev/null", "wb");
 
     /* end freqwatch */
 
@@ -1869,6 +1935,14 @@ int main(int argc, char **argv)
 	}
 	pthread_create(&dongle.thread, NULL, dongle_thread_fn, (void *)(&dongle));
 
+    /* freqwatch */
+    if(fw_gpsd == 1){
+        pthread_create(&gpsst.thread, NULL, gps_thread_fn, (void *)(&gpsst));
+    } else {
+        strcpy(gpsst.gpsstr, "");
+    }
+    /* end freqwatch */
+
 	while (!do_exit) {
 		usleep(100000);
 	}
@@ -1891,6 +1965,12 @@ int main(int argc, char **argv)
 	pthread_join(output.thread, NULL);
 	safe_cond_signal(&controller.hop, &controller.hop_m);
 	pthread_join(controller.thread, NULL);
+
+    /* freqwatch */
+    if(fw_gpsd == 1){
+        pthread_join(gpsst.thread, NULL);
+    }
+    /* end freqwatch */
 
 	//dongle_cleanup(&dongle);
 	demod_cleanup(&demod);

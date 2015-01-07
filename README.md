@@ -3,6 +3,13 @@ Joshua Davis (freqwatch -!- covert.codes)
 http://covert.codes/freqwatch/
 
 
+Updates in v0.2
+===============
+
+* Client ID goes to database
+* Experimental GPS (not finished yet, need help testing)
+
+
 Introduction
 ============
 
@@ -37,6 +44,19 @@ Usage
 * Use the intercept.py file in the rtl_fm_new directory to pull data from
   the monitor database.  The monitor system still has problems (inserts
   blanks in the output...)
+
+
+Useful Commands
+===============
+
+* Get rtl_fm_new data to listen to / decode: mysql --binary-mode -e "select group_concat(data separator '') from intercepts order by date, time;" -A -B -r -L -N freqwatch -u freqwatch -p > output
+
+* Or better yet, use intercept.py in the rtl_fm directory
+
+* Intercept WBFM: rtl_fm -f 95.7e6 -s 170k -A fast -r 32k -l 0 | play -r 32k -t raw -e s -b 16 -c 1 -V1 - (they suggest using -E deemp, but that doesn't work for me)
+
+* Listen to WBFM on the command line: cat file | play -t raw -r 32k -e signed-integer -b 16 -c 1 -V1 -
+
 
 Security Note
 ==============

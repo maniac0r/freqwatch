@@ -1,5 +1,5 @@
 #!/usr/bin/env python2
-# freqwatch v0.1
+# freqwatch v0.2
 #
 # Joshua Davis (freqwatch -*- covert.codes)
 # http://covert.codes
@@ -28,60 +28,64 @@ import signal
 import sys
 import threading
 import time
+from iniparse import INIConfig
 from rtlsdr import RtlSdr
 from subprocess import Popen, PIPE
 
-sigint_handled = 0
+try:
+    from gps import *
+    gps_imported = True
+except:
+    gps_imported = False
+
+sigint_handled = False
 stop = threading.Event()
 
 BLACKLIST_FILE = 'blacklist'
-CONF_FILE = 'freqwatch.conf'
-ERR              = 1
-FW_VERSION       = 'v0.1'
-
-
-class Param:
-    def __init__(self, param_list):
-        self.params = param_list
-
-    def getparam(self, name):
-        for p in self.params:
-            if p[0].strip() == name:
-                try:
-                    return p[1].strip()
-                except:
-                    return None
-
-        return None
+CLIENTID_LEN   = 64
+CONF_FILE      = 'freqwatch.conf'
+ERR            = 1
+FW_VERSION     = 'v0.2'
+GPS_SLEEP      = 5 # seconds
 
 
 class Scanner():
-    def __init__(self, devid, freqs, squelch, ppm, params):
+    def __init__(self, devid, freqs, squelch, ppm, gpsp, config):
         self.devid = devid
         self.freqs = freqs
         self.squelch = squelch
         self.ppm = ppm
-        self.cmd = params.getparam('rtl_path')+'/rtl_power'
-        self.delay = float(params.getparam('collection_delay'))
-        self.params = params
-        self.db_scan_table = params.getparam('db_scan_table')
+        self.delay = float(config.rtl.collection_delay)
+        self.db_scan_table = config.db.db_scan_table
+
+        self.cmd = config.rtl.rtl_path+'/rtl_power'
+        self.clientid = config.rtl.clientid[:CLIENTID_LEN]
+
+        self.using_gps = False
+        if int(config.gps.gpsd) == 1 and gps_imported == True:
+            self.using_gps = True
+            self.gpsp = gpsp
 
         self.devnull = open(os.devnull, 'w')
 
         try:
-            self.db = MySQLdb.connect(host=params.getparam('db_ip'), \
-                                      port=int(params.getparam('db_port')), \
-                                      user=params.getparam('db_user'), \
-                                      passwd=params.getparam('db_pass'), \
-                                      db=params.getparam('db_db'))
+            db_ip = config.db.db_ip
+            db_port = int(config.db.db_port)
+            db_user = config.db.db_user
+            db_pass = config.db.db_pass
+            db_db = config.db.db_db
+
+            self.db = MySQLdb.connect(host=db_ip, port=db_port, user=db_user, \
+                                        passwd=db_pass, db=db_db)
 
             self.db.autocommit(False)
             self.cursor = self.db.cursor()
 
         except MySQLdb.Error, e:
             print("MySQL Error [{}]: {}".format(e.args[0], e.args[1]))
+            sys.exit(ERR)
 
-        self.sql = ('INSERT INTO {} (date, time, freq, power) VALUES ''(%s, %s, %s, %s)'.format(self.db_scan_table))
+        self.sql = ('INSERT INTO {} (date, time, freq, power, clientid, gps) VALUES ''(%s, %s, %s, %s, %s, %s)'.format(self.db_scan_table))
 
         # blacklist
         self.blacklist = list()
@@ -119,6 +123,13 @@ class Scanner():
                 print("rtl-power exited with error code that was not 0({}); "\
                         "thread terminating".format(rc))
 
+            if self.using_gps == True:
+                gpsstr = self.gpsp.get_current()
+                if gpsstr == None:
+                    gpsstr = ''
+            else:
+                gpsstr = ''
+
             for tmp in data.split('\n'):
                 if stop.isSet():
                     return
@@ -131,7 +142,7 @@ class Scanner():
 
                     readings = [x.strip() for x in raw_readings.split(',')]
                 except:
-                    print("exiting either because sticks not connected, or ctrl-c")
+                    print("thread exiting on exception")
                     sys.exit(0)
 
                 for i in range(len(readings)):
@@ -143,7 +154,7 @@ class Scanner():
                     r = float(readings[i])
 
                     if r > self.squelch:
-                        self.insertdb(d, t, f, r)
+                        self.insertdb(d, t, f, r, gpsstr)
 
             self.db.commit()
             time.sleep(self.delay)
@@ -159,9 +170,9 @@ class Scanner():
         return False
 
 
-    def insertdb(self, d, t, freq, power):
+    def insertdb(self, d, t, freq, power, gpsstr):
         try:
-            self.cursor.execute(self.sql, (d, t, freq, power))
+            self.cursor.execute(self.sql, (d, t, freq, power, self.clientid, gpsstr))
 
         except MySQLdb.Error, e:
             self.db.rollback()
@@ -169,85 +180,89 @@ class Scanner():
             sys.exit(ERR)
 
 
-class Collector():
-    def __init__(self, params):
-        scanners = params.getparam('scanners')
-        if scanners == None:
-            print("No scanners defined in the configuration file.")
-            sys.exit(ERR)
+class GpsPoller(threading.Thread):
+    def __init__(self, host, port):
+        threading.Thread.__init__(self)
+        self.gpsd = gps(host, port, mode=WATCH_ENABLE)
+        self.locstr = None
 
-        threads = list()
-        devs = list()
 
-        for s in scanners.split(','):
-            devid = s.strip()
-            if len(devid) == 0:
-                continue
+    def get_current(self):
+        return self.locstr
 
-            if int(devid) in devs:
-                print("You already have assigned the device id {}".format(devid))
-                sys.exit(ERR)
-            devs.append(int(devid))
 
-            freqs, squelch, ppm = params.getparam('scanner'+s).split('/')
-            if freqs == None:
-                print("Is there a frequency entry for each device you've " \
-                        "specified in 'scanners' in the configuration?")
-                sys.exit(ERR)
-
-            freqs = freqs.strip()
-            squelch = int(squelch.strip())
-            ppm = ppm.strip()
-            if len(ppm) == 0:
-                ppm = 0
-            else:
-                ppm = int(ppm)
-
-            sworker = Scanner(devid, freqs, squelch, ppm, params)
-            thread = threading.Thread(target=sworker.worker)
-            threads.append(thread)
-            thread.start()
-
-        for t in threads:
-            t.join()
+    def run(self):
+        try:
+            while not stop.isSet():
+                self.current_value = self.gpsd.next()
+                self.locstr = str(self.gpsd.fix.latitude)+' '+str(self.gpsd.fix.longitude)
+                time.sleep(GPS_SLEEP)
+        except StopIteration:
+            pass
 
 
 def main():
-    try:
-        with open(CONF_FILE) as cfile:
-            lines = cfile.readlines()
-    except:
-        print("Could not open configuration file {}".format(CONF_FILE))
+    config = INIConfig(open(CONF_FILE))
+
+    scanners = config.rtl.scanners
+    if type(scanners) != type(str()):
+        print("No scanners defined in the configuration file.")
         sys.exit(ERR)
 
-    param_list = list()
+    if int(config.gps.gpsd) == 1 and gps_imported == True:
+        gpsp = GpsPoller(config.gps.gpsd_ip, config.gps.gpsd_port)
+        gpsp.start()
 
-    for l in lines:
-        l = l.strip()
-        if len(l) == 0 or l[0] == '#':
+    threads = list()
+    devs = list()
+    for s in scanners.split(','):
+        devid = s.strip()
+        if len(devid) == 0:
             continue
 
-        p = l.split('=')
-        if len(p) != 2:
-            continue
+        if int(devid) in devs:
+            print("You already have assigned the device id {}".format(devid))
+            sys.exit(ERR)
+        devs.append(int(devid))
 
-        param_list.append(p)
+        a = 'config.rtl.scanner'+s
+        tmp = eval(a)
 
-    params = Param(param_list)
-    c = Collector(params)
+        freqs, squelch, ppm = tmp.split('/')
+        if freqs == None:
+            print("Is there a frequency entry for each device you've " \
+                    "specified in 'scanners' in the configuration?")
+            sys.exit(ERR)
+
+        freqs = freqs.strip()
+        squelch = int(squelch.strip())
+        ppm = ppm.strip()
+        if len(ppm) == 0:
+            ppm = 0
+        else:
+            ppm = int(ppm)
+
+        clientid = config.rtl.clientid
+
+        sworker = Scanner(devid, freqs, squelch, ppm, gpsp, config)
+        thread = threading.Thread(target=sworker.worker)
+        threads.append(thread)
+        thread.start()
+
+    for t in threads:
+        t.join()
 
 
 def sigint_handler(signal, frame):
     global sigint_handled
 
-    if sigint_handled == 0:
+    if sigint_handled == False:
         print("SIGINT received.  Stopping...")
         stop.set()
-        sigint_handled = 1
+        sigint_handled = True
 
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, sigint_handler)
-
     main()
 
