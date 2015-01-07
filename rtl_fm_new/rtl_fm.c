@@ -1183,7 +1183,6 @@ static void *gps_thread_fn(void *arg)
         if(gps_waiting(&gps_data, 500)){
             if(gps_data.status > 0){
                 pthread_mutex_lock(&gpsst.gpsstr_m);
-                printf("here: %d\n", gps_data.fix.latitude);
                 snprintf(gpsst.gpsstr, sizeof(gpsst.gpsstr), "%f %f", gps_data.fix.latitude, gps_data.fix.longitude);
                 pthread_mutex_unlock(&gpsst.gpsstr_m);
             }
