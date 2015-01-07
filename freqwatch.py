@@ -212,6 +212,8 @@ def main():
     if int(config.gps.gpsd) == 1 and gps_imported == True:
         gpsp = GpsPoller(config.gps.gpsd_ip, config.gps.gpsd_port)
         gpsp.start()
+    else:
+        gpsp = None
 
     threads = list()
     devs = list()
