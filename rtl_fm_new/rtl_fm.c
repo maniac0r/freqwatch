@@ -321,6 +321,7 @@ insertdb(int16_t *data, size_t size, size_t nmemb)
 
         if(mysql_stmt_execute(stmt) != 0){
             printf("Unabel to execute session: mysql_stmt_execute()\n");
+            printf("Check max_allowed_packet in my.cnf\n");
             exit(1);
         }
 
@@ -1938,7 +1939,7 @@ int main(int argc, char **argv)
     if(fw_gpsd == 1){
         pthread_create(&gpsst.thread, NULL, gps_thread_fn, (void *)(&gpsst));
     } else {
-        strcpy(gpsst.gpsstr, "");
+        strcpy(gpsst.gpsstr, "disabled");
     }
     /* end freqwatch */
 

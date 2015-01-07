@@ -128,7 +128,7 @@ class Scanner():
                 if gpsstr == None:
                     gpsstr = ''
             else:
-                gpsstr = ''
+                gpsstr = 'disabled'
 
             for tmp in data.split('\n'):
                 if stop.isSet():
