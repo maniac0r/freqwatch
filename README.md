@@ -1,9 +1,8 @@
 # Freqwatch v0.2
 Joshua Davis (freqwatch -!- covert.codes)  
-http://covert.codes/freqwatch/
 
 # UPDATE:
-This is newer and does more: http://gammarf.io - check it out.
+This is newer and does more: http://www.gammarf.io - check it out.
 
 Updates in v0.2
 ===============
