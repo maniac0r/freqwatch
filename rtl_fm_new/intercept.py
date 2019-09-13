@@ -1,7 +1,6 @@
 #!/usr/bin/env python2
 #
-# Joshua Davis (freqwatch -*- covert.codes)
-# http://covert.codes
+# Joshua Davis (freqwatch -*- edgetera.net)
 # Copyright(C) 2014
 #
 # This program is free software: you can redistribute it and/or modify

@@ -1,8 +1,7 @@
 #
 # freqwatch v0.2
 # Joshua Davis
-# freqwatch -!- covert.codes
-#
+# freqwatch -!- edgetera.net
 
 1) Built on Linux with Python 2.7.  Requires that mysqld/mariadb and the
    rtl-sdr tools be installed.  Requires the Python development package

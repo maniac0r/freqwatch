@@ -1767,7 +1767,7 @@ int main(int argc, char **argv)
     /* freqwatch */
 
     fprintf(stderr, "** Modified rtl_fm for use with freqwatch\n");
-    fprintf(stderr, "** Modified by Joshua Davis (freqwatch -!- covert.codes)\n");
+    fprintf(stderr, "** Modified by Joshua Davis (freqwatch -!- edgetera.net)\n");
     fprintf(stderr, "** Output will be written to the database\n");
 
     FILE *conff = fopen(CONF_FILE, "r");

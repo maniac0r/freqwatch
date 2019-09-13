@@ -1,8 +1,9 @@
 # Freqwatch v0.2
-Joshua Davis (freqwatch -!- covert.codes)  
+Joshua Davis (freqwatch -!- edgetera.net)  
 
 # UPDATE:
-This is newer and does more: http://www.gammarf.io - check it out.
+This is newer and does more: http://www.gammarf.io - check it out.  
+Or check out my SensorScape repo
 
 Updates in v0.2
 ===============
@@ -65,10 +66,3 @@ Security Note
 You should run freqwatch in a controlled environment (e.g. with the web and
 database servers on localhost, and a firewall blocking the relevant ports
 from outsiders.)
-
-
-Bugs
-====
-
-Please send bugs to freqwatch -!- covert.codes
-
